@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -172,5 +173,83 @@ func TestBuildOverrideSettingsCanEnableClaimMomentsOverGlobalDefault(t *testing.
 	}
 	if !got.ClaimMoments {
 		t.Fatalf("expected streamer override to enable claim_moments")
+	}
+}
+
+func TestDefaultConfigIncludesWeeklyRewards(t *testing.T) {
+	cfg := defaultConfig()
+	if got, ok := cfg["weekly_rewards"].(bool); !ok || !got {
+		t.Fatalf("weekly_rewards default got %#v, want true", cfg["weekly_rewards"])
+	}
+	progressor, ok := cfg["weekly_rewards_progressor"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("weekly_rewards_progressor default missing")
+	}
+	for _, key := range []string{"enabled", "max_concurrent_watch", "max_seconds_clips", "max_seconds_vods", "loop_interval_seconds", "max_failures_per_streamer", "failure_cooldown_seconds"} {
+		if _, ok := progressor[key]; !ok {
+			t.Fatalf("weekly_rewards_progressor missing %q", key)
+		}
+	}
+}
+
+func TestLoadOrCreateConfigFillsWeeklyRewardsDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	// ? An existing config from before Weekly Rewards, with a partial progressor block.
+	raw := `{"username":"viewer","weekly_rewards_progressor":{"max_concurrent_watch":5}}`
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := loadOrCreateConfig(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.WeeklyRewards {
+		t.Fatalf("weekly_rewards should default to true")
+	}
+	settings := buildWeeklyRewardsProgressorSettings(cfg.WeeklyRewardsProgressor)
+	if !settings.Enabled || settings.MaxConcurrentWatch != 5 || settings.MaxSecondsVODs != 480 || settings.FailureCooldownSeconds != 3600 {
+		t.Fatalf("unexpected progressor settings: %+v", settings)
+	}
+	written, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	for _, key := range []string{`"weekly_rewards"`, `"max_seconds_clips"`, `"failure_cooldown_seconds"`} {
+		if !strings.Contains(string(written), key) {
+			t.Fatalf("missing %s in the rewritten config", key)
+		}
+	}
+}
+
+func TestBuildWeeklyRewardsProgressorSettings(t *testing.T) {
+	disabled := false
+	zero := 0
+	clips := 45.0
+	got := buildWeeklyRewardsProgressorSettings(weeklyRewardsProgressorConfig{
+		Enabled:            &disabled,
+		MaxConcurrentWatch: &zero,
+		MaxSecondsClips:    &clips,
+	})
+	def := miner.DefaultWeeklyRewardsProgressorSettings()
+	if got.Enabled || got.MaxSecondsClips != 45 || got.MaxConcurrentWatch != def.MaxConcurrentWatch {
+		t.Fatalf("unexpected settings: %+v", got)
+	}
+	if got := buildWeeklyRewardsProgressorSettings(weeklyRewardsProgressorConfig{}); got != def {
+		t.Fatalf("empty config should give defaults, got %+v", got)
+	}
+}
+
+func TestWeeklyRewardsGlobalAndOverride(t *testing.T) {
+	base := buildBaseStreamerSettings(config{WeeklyRewards: true})
+	if !base.WeeklyRewards {
+		t.Fatalf("global weekly_rewards should reach the base settings")
+	}
+	off := false
+	merged := buildOverrideSettings(base, map[string]streamerSettingsConfig{"Quiet": {WeeklyRewards: &off}, "Other": {}})
+	if merged["quiet"].WeeklyRewards {
+		t.Fatalf("override should disable weekly_rewards for one streamer")
+	}
+	if !merged["other"].WeeklyRewards {
+		t.Fatalf("streamers without an override keep the global value")
 	}
 }

@@ -56,6 +56,7 @@ const (
 	watchPrioritySubscribed
 	watchPriorityPointsAscending
 	watchPriorityPointsDescending
+	watchPriorityWeeklyRewards
 )
 
 const maxConcurrentWatchers = 2
@@ -96,6 +97,8 @@ func parseWatchPriorities(priorityNames []string) []watchPriority {
 			add(watchPriorityPointsAscending)
 		case "POINTS_DESC", "POINTS_DESCENDING":
 			add(watchPriorityPointsDescending)
+		case "WEEKLY_REWARDS", "WEEKLY":
+			add(watchPriorityWeeklyRewards)
 		}
 	}
 	if len(parsed) == 0 {
@@ -169,6 +172,7 @@ type Miner struct {
 	warmStartCachePath         string
 	activeStreakWatches        map[string]activeStreakWatch
 	activeStreakMu             sync.Mutex
+	weeklyProgressorSettings   *WeeklyRewardsProgressorSettings
 }
 
 func NewMiner(username, password string, claimDropsStartup bool, disableCertCheck bool, loggerSettings LoggerSettings, streamerSettings entities.StreamerSettings, streamerOverrides map[string]entities.StreamerSettings, priorityNames []string, streamerExclude []string, gamePriority []string, gameExclude []string, disableAtInNickname bool, showGameInfo bool, logWatchQueue bool, watchStreakWarmStartCache bool, showDropsProgress bool) *Miner {
@@ -556,6 +560,7 @@ func (m *Miner) run(streamers []string, useFollowers bool, order entities.Follow
 	go m.minuteWatcher(streamerObjs, m.stop)
 	go m.startPubSub(streamerObjs, m.stop)
 	go m.streakRecovery(streamerObjs, m.stop)
+	m.startWeeklyRewards(streamerObjs, m.stop)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
@@ -1156,6 +1161,20 @@ func (m *Miner) pickStreamersToWatch(streamers []*entities.Streamer) []*entities
 			pick(desc, true, func(a, b candidate) bool {
 				return streamers[a.idx].ChannelPoints > streamers[b.idx].ChannelPoints
 			}, "POINTS_DESC", false)
+		case watchPriorityWeeklyRewards:
+			// ? Live channels whose Weekly Reward visit is still missing today. A completed watch
+			// ? streak already counts as today's visit, so only streak-missing streams qualify.
+			weekly := make([]candidate, 0, len(candidates))
+			for _, c := range candidates {
+				s := streamers[c.idx]
+				if s == nil || s.Stream == nil {
+					continue
+				}
+				if s.Stream.WatchStreakMissing && s.MissingWeeklyReward(now) {
+					weekly = append(weekly, c)
+				}
+			}
+			pick(weekly, true, nil, "WEEKLY_REWARDS", false)
 		}
 	}
 
@@ -1513,6 +1532,7 @@ func (m *Miner) startPubSub(streamers []*entities.Streamer, stop <-chan struct{}
 		m.handlePubSubGain,
 		m.handlePubSubPresence,
 	)
+	client.SetWeeklyRewardsHandler(m.handleWeeklyRewardNotification)
 	client.Start(stop)
 }
 

@@ -16,6 +16,7 @@ Go rewrite of [0x8fv/Twitch-Channel-Points-Miner-v2](https://github.com/0x8fv/Tw
 - Written in Go for faster start-up and lower CPU compared to the original runtime.
 - Uses Twitch PubSub for near-instant point gain logging.
 - Can target a manual list of streamers or mine everyone you follow.
+- Makes progress on [Weekly Rewards](https://help.twitch.tv/s/article/weekly-rewards) (channel points plus a chat badge for visiting a channel a few days a week), also for channels that are offline.
 
 ## Quick start
 1) Install Go 1.21+.
@@ -34,7 +35,7 @@ When running a prebuilt binary, the miner uses `./config.json` if it exists in t
 - `smart_logging`, `emojis`, `show_seconds`, `show_username_in_console`, `show_claimed_bonus_msg`: Console output preferences.
 - `save_logs`: Write console output to `log/<username>.log` in addition to stdout.
 - `privacy.anonymize_logs`: Replace streamer names and point balances in all logs with anonymized values; when enabled, `save_logs` writes to `log/miner.log`.
-- `discord`: Optional Discord webhook notifications. Provide `webhook_api` plus `events` (list of event names to send). Supported events: `STARTUP`, `SHUTDOWN`, `STREAMER_ONLINE`, `STREAMER_OFFLINE`, `GAIN_FOR_RAID`, `GAIN_FOR_CLAIM`, `GAIN_FOR_WATCH`, `GAIN_FOR_WATCH_STREAK`, `BET_WIN`, `BET_LOSE`, `BET_REFUND`, `BET_FILTERS`, `BET_GENERAL`, `BET_FAILED`, `BET_START`, `BONUS_CLAIM`, `MOMENT_CLAIM`, `JOIN_RAID`, `DROP_CLAIM`, `DROP_STATUS`, `CHAT_MENTION`.
+- `discord`: Optional Discord webhook notifications. Provide `webhook_api` plus `events` (list of event names to send). Supported events: `STARTUP`, `SHUTDOWN`, `STREAMER_ONLINE`, `STREAMER_OFFLINE`, `GAIN_FOR_RAID`, `GAIN_FOR_CLAIM`, `GAIN_FOR_WATCH`, `GAIN_FOR_WATCH_STREAK`, `BET_WIN`, `BET_LOSE`, `BET_REFUND`, `BET_FILTERS`, `BET_GENERAL`, `BET_FAILED`, `BET_START`, `BONUS_CLAIM`, `MOMENT_CLAIM`, `JOIN_RAID`, `DROP_CLAIM`, `DROP_STATUS`, `CHAT_MENTION`, `WEEKLY_REWARD`.
 - `disable_ssl_cert_verification`: Disables TLS certificate/hostname verification for PubSub WebSockets only; leave `false` unless you know you need it.
 - `timezone`: Optional IANA timezone name (e.g. `Europe/Berlin`) to override auto-detection for environments like Android/Termux; leave `null`/empty to auto-detect.
 - `claim_drops_startup`, `claim_drops`, `follow_raid`: Auto-claim drops at boot, continue claiming while running, and auto-follow raid targets.
@@ -43,8 +44,17 @@ When running a prebuilt binary, the miner uses `./config.json` if it exists in t
 - `betting(make_predictions)`: Enable Twitch prediction betting.
 - `watch_streak_warm_start_cache`: When `true` (default), reuse recent watch-streak state for the same still-live stream across restarts to avoid re-probing every online channel at startup. The miner stores this account-scoped cache at `log/watch_streak_cache.<username>.json`.
 - `disable_at_in_nickname`: When `true`, `CHAT_MENTION` also triggers on plain username mentions in chat (without requiring `@username`), matching the Python miner behavior.
+- `weekly_rewards`: When `true` (default), track [Weekly Rewards](https://help.twitch.tv/s/article/weekly-rewards) for every mined channel: the state is synced hourly and updated live over PubSub (`weekly-rewards` topic). Can be overridden per streamer in `streamer_overrides`.
+- `weekly_rewards_progressor`: How the miner makes Weekly Rewards progress for **offline** channels that still miss today's visit (online channels progress through normal watching). It "watches" a Clip first and, if that doesn't count, a recent VOD. Options:
+  - `enabled` (default `true`): set `false` to only track Weekly Rewards without watching Clips/VODs.
+  - `max_concurrent_watch` (default `2`): channels progressed at the same time.
+  - `max_seconds_clips` (default `30`) / `max_seconds_vods` (default `480`): how long to watch a Clip / VOD before giving up.
+  - `loop_interval_seconds` (default `20`): how often to look for channels to progress.
+  - `max_failures_per_streamer` (default `1`) / `failure_cooldown_seconds` (default `3600`): after this many failed attempts a channel is skipped for the cooldown.
+  Clips must be longer than 5 seconds; VODs must be at least 6 minutes long and viewable (subscriber-only VODs are skipped).
 - `streamers`: List of channel logins to mine; if empty, followers are mined in descending follow order.
 - `streamers_exclude`: List of channel logins to skip (useful with an empty `streamers` list to mine all followed channels except specific ones); case-insensitive.
+- `watch_priority`: Ordered rules for picking the (at most two) live channels to watch. Default `["STREAK", "DROPS", "ORDER"]`. Options: `STREAK`, `DROPS`, `ORDER` (order of `streamers`), `SUBSCRIBED`, `POINTS_ASC`, `POINTS_DESC`, `WEEKLY_REWARDS` (live channels still missing today's Weekly Rewards visit whose watch streak isn't completed yet).
 - `streamer_overrides`: Per-streamer overrides keyed by login; inherit from the global flags above. Example:
   ```json
   "streamer1": {
@@ -54,6 +64,7 @@ When running a prebuilt binary, the miner uses `./config.json` if it exists in t
     "claim_moments": false,
     "watch_streak": true,
     "community_goals": false,
+    "weekly_rewards": true,
     "bet": {
       "strategy": "SMART",
       "percentage": 5,

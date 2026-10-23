@@ -42,6 +42,12 @@ type PubSubClient struct {
 	predMu      sync.Mutex
 	onGain      func(streamer *entities.Streamer, earned int, reason string, balance int)
 	onPresence  func(streamer *entities.Streamer, online bool, reason string)
+	onWeekly    func(streamer *entities.Streamer, notification entities.WeeklyRewardsNotification)
+}
+
+// SetWeeklyRewardsHandler registers the callback for weekly-rewards notifications.
+func (p *PubSubClient) SetWeeklyRewardsHandler(handler func(*entities.Streamer, entities.WeeklyRewardsNotification)) {
+	p.onWeekly = handler
 }
 
 func (p *PubSubClient) anonymizeLogs() bool {
@@ -336,6 +342,9 @@ func (p *PubSubClient) buildTopics() ([]string, error) {
 		if s.Settings.CommunityGoals {
 			addTopic(fmt.Sprintf("community-points-channel-v1.%s", s.ChannelID))
 		}
+		if s.Settings.WeeklyRewards {
+			addTopic(fmt.Sprintf("weekly-rewards.%s.%s", userID, s.ChannelID))
+		}
 	}
 
 	return topics, nil
@@ -343,7 +352,7 @@ func (p *PubSubClient) buildTopics() ([]string, error) {
 
 func (p *PubSubClient) listenTopics(conn *websocket.Conn, topics []string) error {
 	needsAuth := func(topic string) bool {
-		return strings.HasPrefix(topic, "community-points-user-v1.") || strings.HasPrefix(topic, "predictions-user-v1.")
+		return strings.HasPrefix(topic, "community-points-user-v1.") || strings.HasPrefix(topic, "predictions-user-v1.") || strings.HasPrefix(topic, "weekly-rewards.")
 	}
 	for _, t := range topics {
 		data := map[string]interface{}{"topics": []string{t}}
@@ -432,6 +441,8 @@ func (p *PubSubClient) handleTopicMessage(envelope map[string]interface{}) error
 		return p.processPredictionUser(payload)
 	case strings.HasPrefix(topic, "community-points-channel-v1."):
 		return p.processCommunityPointChannel(topic, payload)
+	case strings.HasPrefix(topic, "weekly-rewards."):
+		return p.processWeeklyRewards(topic, []byte(messageStr))
 	default:
 		return nil
 	}
@@ -480,6 +491,29 @@ func (p *PubSubClient) processPlaybackMessage(topic string, payload map[string]i
 		}
 	case "stream-down":
 		p.onPresence(streamer, false, msgType)
+	}
+	return nil
+}
+
+func (p *PubSubClient) processWeeklyRewards(topic string, raw []byte) error {
+	notification, err := ParseWeeklyRewardsNotification(raw)
+	if err != nil {
+		return err
+	}
+	channelID := notification.ChannelID
+	if channelID == "" {
+		// ? weekly-rewards.<userId>.<channelId>
+		if parts := strings.Split(topic, "."); len(parts) == 3 {
+			channelID = parts[2]
+		}
+	}
+	streamer := p.streamerMap[channelID]
+	if streamer == nil {
+		p.debugf("weekly-rewards notification for a channel that is not mined")
+		return nil
+	}
+	if p.onWeekly != nil {
+		p.onWeekly(streamer, notification)
 	}
 	return nil
 }

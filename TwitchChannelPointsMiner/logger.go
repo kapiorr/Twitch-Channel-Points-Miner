@@ -199,6 +199,14 @@ var emojiMap = map[string]string{
 	":disappointed_relieved:":    "😥",
 	":video_game:":               "🎮",
 	":ambulance:":                "🚑",
+	":calendar:":                 "📅",
+	":paperclip:":                "📎",
+	":clapper:":                  "🎬",
+	":seedling:":                 "🌱",
+	":potted_plant:":             "🪴",
+	":wilted_flower:":            "🥀",
+	":rose:":                     "🌹",
+	":bouquet:":                  "💐",
 }
 
 func emojize(code string) string {

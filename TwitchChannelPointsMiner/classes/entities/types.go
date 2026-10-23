@@ -95,6 +95,7 @@ type StreamerSettings struct {
 	ClaimMoments    bool        `json:"claim_moments"`
 	WatchStreak     bool        `json:"watch_streak"`
 	CommunityGoals  bool        `json:"community_goals"`
+	WeeklyRewards   bool        `json:"weekly_rewards"`
 	Bet             BetSettings `json:"bet"`
 	IRCMode         IRCMode     `json:"chat_presence"`
 }
@@ -121,6 +122,12 @@ type Streamer struct {
 	History                      map[string]*HistoryEntry
 	HistoryMu                    sync.Mutex
 	CommunityGoals               map[string]*CommunityGoal `json:"-"`
+
+	// ? Weekly Rewards state, guarded by weeklyMu (see weekly_rewards.go).
+	weeklyMu      sync.Mutex
+	weeklyRewards *WeeklyRewards
+	weeklyClips   []Clip
+	weeklyVODs    []VOD
 }
 
 type ActiveMultiplier struct {
