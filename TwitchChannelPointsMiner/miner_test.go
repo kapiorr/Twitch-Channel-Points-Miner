@@ -1454,3 +1454,51 @@ func TestShouldClaimDrops(t *testing.T) {
 	}
 }
 
+
+func TestLogDropStatusesUsesWatchedChannelForGame(t *testing.T) {
+	var buf bytes.Buffer
+	m := &Miner{
+		logger:            &Logger{base: log.New(&buf, "", 0)},
+		showDropsProgress: true,
+	}
+	overwatch := &entities.Streamer{Username: "ow_streamer", IsOnline: true, Stream: entities.NewStream()}
+	overwatch.Stream.Game = map[string]interface{}{"displayName": "Overwatch"}
+	other := &entities.Streamer{Username: "other_streamer", IsOnline: true, Stream: entities.NewStream()}
+	other.Stream.Game = map[string]interface{}{"displayName": "Just Chatting"}
+	m.setCurrentlyWatching([]*entities.Streamer{other, overwatch})
+
+	status := classpkg.DropStatus{
+		RewardName:    "Heroes of Heart Avatar",
+		CampaignName:  "Reign of Talon S5 Launch",
+		GameName:      "overwatch",
+		CurrentValue:  1,
+		RequiredValue: 30,
+	}
+	m.logDropStatuses([]classpkg.DropStatus{status})
+	if got := buf.String(); !strings.Contains(got, "/ ow_streamer / 1m of 30m") {
+		t.Fatalf("expected the watched Overwatch channel, got %q", got)
+	}
+
+	// ? A channel name from Twitch wins over the watched channel.
+	buf.Reset()
+	status.ChannelName = "campaign_channel"
+	m.logDropStatuses([]classpkg.DropStatus{status})
+	if got := buf.String(); !strings.Contains(got, "/ campaign_channel /") {
+		t.Fatalf("expected the inventory channel, got %q", got)
+	}
+
+	// ? Nothing watched for the game: keep the placeholder.
+	buf.Reset()
+	status.ChannelName = ""
+	overwatch.IsOnline = false
+	m.logDropStatuses([]classpkg.DropStatus{status})
+	if got := buf.String(); !strings.Contains(got, "/ unknown_streamer /") {
+		t.Fatalf("expected unknown_streamer when no watched channel matches, got %q", got)
+	}
+
+	// ? Watch list is replaced, not appended to.
+	m.setCurrentlyWatching(nil)
+	if got := m.watchedChannelsForGame("Just Chatting"); got != "" {
+		t.Fatalf("cleared watch list should match nothing, got %q", got)
+	}
+}

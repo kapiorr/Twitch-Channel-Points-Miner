@@ -520,3 +520,34 @@ func TestSendMinuteWatchedRequestsStreamSegments(t *testing.T) {
 		})
 	}
 }
+
+func TestDropStatusesFromInventoryReadsAllowChannels(t *testing.T) {
+	campaign := func(allow interface{}) map[string]interface{} {
+		return map[string]interface{}{
+			"dropCampaignsInProgress": []interface{}{
+				map[string]interface{}{
+					"name":  "Reign of Talon S5 Launch",
+					"game":  map[string]interface{}{"displayName": "Overwatch"},
+					"allow": allow,
+					"timeBasedDrops": []interface{}{
+						map[string]interface{}{
+							"name":                   "Heroes of Heart Avatar",
+							"requiredMinutesWatched": float64(30),
+							"self":                   map[string]interface{}{"currentMinutesWatched": float64(1)},
+						},
+					},
+				},
+			},
+		}
+	}
+	restricted := dropStatusesFromInventory(campaign(map[string]interface{}{
+		"channels": []interface{}{map[string]interface{}{"id": "1", "name": "allowed_channel", "displayName": "Allowed_Channel"}},
+	}))
+	if len(restricted) != 1 || restricted[0].ChannelName != "allowed_channel" {
+		t.Fatalf("allow.channels should give the channel name, got %+v", restricted)
+	}
+	gameWide := dropStatusesFromInventory(campaign(map[string]interface{}{"channels": nil, "isEnabled": false}))
+	if len(gameWide) != 1 || gameWide[0].ChannelName != "" {
+		t.Fatalf("a game-wide campaign has no channel, got %+v", gameWide)
+	}
+}

@@ -1371,6 +1371,12 @@ func channelNameFromInventory(campaign map[string]interface{}) string {
 			return strings.TrimSpace(name)
 		}
 	}
+	// ? Twitch's own field for channel-restricted campaigns (null for game-wide ones).
+	if allow, ok := campaign["allow"].(map[string]interface{}); ok {
+		if name := channelNameFromList(allow["channels"]); name != "" {
+			return name
+		}
+	}
 	for _, key := range []string{"channels", "eligibleChannels", "allowChannels", "allowedChannels"} {
 		if name := channelNameFromList(campaign[key]); name != "" {
 			return name

@@ -169,6 +169,8 @@ type Miner struct {
 	warmStartCachePath         string
 	activeStreakWatches        map[string]activeStreakWatch
 	activeStreakMu             sync.Mutex
+	watchingMu                 sync.Mutex
+	watching                   []*entities.Streamer
 }
 
 func NewMiner(username, password string, claimDropsStartup bool, disableCertCheck bool, loggerSettings LoggerSettings, streamerSettings entities.StreamerSettings, streamerOverrides map[string]entities.StreamerSettings, priorityNames []string, streamerExclude []string, gamePriority []string, gameExclude []string, disableAtInNickname bool, showGameInfo bool, logWatchQueue bool, watchStreakWarmStartCache bool, showDropsProgress bool) *Miner {
@@ -619,12 +621,44 @@ func (m *Miner) logDropStatuses(statuses []classpkg.DropStatus) {
 		return
 	}
 	for _, status := range statuses {
+		if strings.TrimSpace(status.ChannelName) == "" {
+			// ? Inventory doesn't say which channel a drop progresses on (game-wide campaigns),
+			// ? so use the channel(s) the miner is currently watching for that game.
+			status.ChannelName = m.watchedChannelsForGame(status.GameName)
+		}
 		line := formatDropStatusLine(status)
 		if line == "" {
 			continue
 		}
 		m.logger.Eventf(constants.EventDropStatus, "%s", line)
 	}
+}
+
+func (m *Miner) setCurrentlyWatching(watchList []*entities.Streamer) {
+	m.watchingMu.Lock()
+	defer m.watchingMu.Unlock()
+	m.watching = append(m.watching[:0], watchList...)
+}
+
+// ? watchedChannelsForGame returns the currently watched channel(s) streaming the given game.
+func (m *Miner) watchedChannelsForGame(game string) string {
+	game = strings.TrimSpace(game)
+	if game == "" {
+		return ""
+	}
+	m.watchingMu.Lock()
+	watching := append([]*entities.Streamer(nil), m.watching...)
+	m.watchingMu.Unlock()
+	names := make([]string, 0, len(watching))
+	for _, s := range watching {
+		if s == nil || !s.IsOnline || s.Stream == nil {
+			continue
+		}
+		if strings.EqualFold(s.Stream.GameName(), game) {
+			names = append(names, m.rawStreamerName(s.Username))
+		}
+	}
+	return strings.Join(names, ", ")
 }
 
 func (m *Miner) contextRefresher(streamers []*entities.Streamer, stop <-chan struct{}) {
@@ -686,6 +720,7 @@ func (m *Miner) minuteWatcher(streamers []*entities.Streamer, stop <-chan struct
 		}
 
 		watchList := m.pickStreamersToWatch(streamers)
+		m.setCurrentlyWatching(watchList)
 		if len(watchList) == 0 {
 			if m.sleepWithStop(20*time.Second, stop) {
 				return
