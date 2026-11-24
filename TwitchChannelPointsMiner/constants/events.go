@@ -26,6 +26,7 @@ const (
 	EventDropClaim        Event = "DROP_CLAIM"
 	EventDropStatus       Event = "DROP_STATUS"
 	EventChatMention      Event = "CHAT_MENTION"
+	EventWeeklyReward     Event = "WEEKLY_REWARD"
 )
 
 func NormalizeEventName(raw string) Event {

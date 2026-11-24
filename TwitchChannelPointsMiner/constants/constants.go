@@ -98,6 +98,7 @@ var GQLOperations = struct {
 	ContributeCommunityPointsCommunityGoal GQLPersistedOperation
 	ClipsCardsUser                         GQLPersistedOperation
 	FilterableVideoTowerVideos             GQLPersistedOperation
+	WeeklyVisitRewardsQuery                GQLPersistedOperation
 }{
 	URL:                          "https://gql.twitch.tv/gql",
 	IntegrityURL:                 "https://gql.twitch.tv/integrity",
@@ -146,6 +147,7 @@ var GQLOperations = struct {
 		"limit":     20,
 		"videoSort": "TIME",
 	}),
+	WeeklyVisitRewardsQuery: newPersistedOperation("WeeklyVisitRewardsQuery", "ce98e9db55db7e4abcc1f5ac65c933b73c58fa9c4c8afe3c5098a8ed79737a3c", nil),
 }
 
 func newPersistedOperation(name, hash string, variables map[string]interface{}) GQLPersistedOperation {

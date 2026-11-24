@@ -153,8 +153,19 @@ type streamerSettingsConfig struct {
 	ClaimMoments    *bool     `json:"claim_moments"`
 	WatchStreak     *bool     `json:"watch_streak"`
 	CommunityGoals  *bool     `json:"community_goals"`
+	WeeklyRewards   *bool     `json:"weekly_rewards"`
 	Bet             betConfig `json:"bet"`
 	IRCMode         *string   `json:"chat_presence"`
+}
+
+type weeklyRewardsProgressorConfig struct {
+	Enabled                *bool    `json:"enabled"`
+	MaxConcurrentWatch     *int     `json:"max_concurrent_watch"`
+	MaxSecondsClips        *float64 `json:"max_seconds_clips"`
+	MaxSecondsVODs         *float64 `json:"max_seconds_vods"`
+	LoopIntervalSeconds    *float64 `json:"loop_interval_seconds"`
+	MaxFailuresPerStreamer *int     `json:"max_failures_per_streamer"`
+	FailureCooldownSeconds *float64 `json:"failure_cooldown_seconds"`
 }
 
 type privacyConfig struct {
@@ -182,6 +193,7 @@ type config struct {
 	BettingMakePredictions     bool            `json:"betting(make_predictions)"`
 	FollowRaid                 bool            `json:"follow_raid"`
 	CommunityGoals             bool            `json:"community_goals"`
+	WeeklyRewards              bool            `json:"weekly_rewards"`
 	Emojis                     bool            `json:"emojis"`
 	SaveLogs                   bool            `json:"save_logs"`
 	ShowUsernameInConsole      bool            `json:"show_username_in_console"`
@@ -202,6 +214,8 @@ type config struct {
 	Discord                    discordConfig   `json:"discord"`
 	Analytics                  analyticsConfig `json:"analytics"`
 	Telegram                   telegramConfig  `json:"telegram"`
+
+	WeeklyRewardsProgressor weeklyRewardsProgressorConfig `json:"weekly_rewards_progressor"`
 
 	StreamerOverrides map[string]streamerSettingsConfig `json:"streamer_overrides"`
 }
@@ -261,6 +275,9 @@ func mergeStreamerSettings(base entities.StreamerSettings, override streamerSett
 	}
 	if override.CommunityGoals != nil {
 		out.CommunityGoals = *override.CommunityGoals
+	}
+	if override.WeeklyRewards != nil {
+		out.WeeklyRewards = *override.WeeklyRewards
 	}
 	out.Bet = mergeBetSettings(out.Bet, override.Bet)
 	if override.IRCMode != nil {
@@ -348,6 +365,7 @@ func defaultConfig() map[string]interface{} {
 		"betting(make_predictions)":     true,
 		"follow_raid":                   true,
 		"community_goals":               false,
+		"weekly_rewards":                true,
 		"emojis":                        true,
 		"save_logs":                     false,
 		"show_username_in_console":      false,
@@ -377,6 +395,15 @@ func defaultConfig() map[string]interface{} {
 			"ORDER",
 		},
 		"streamer_overrides": map[string]interface{}{},
+		"weekly_rewards_progressor": map[string]interface{}{
+			"enabled":                   true,
+			"max_concurrent_watch":      2,
+			"max_seconds_clips":         30,
+			"max_seconds_vods":          480,
+			"loop_interval_seconds":     20,
+			"max_failures_per_streamer": 1,
+			"failure_cooldown_seconds":  3600,
+		},
 		"bet": map[string]interface{}{
 			"strategy":              nil,
 			"percentage":            nil,
@@ -443,9 +470,9 @@ func loadOrCreateConfig(path string) (config, error) {
 		}
 	}
 
-	// ? Fill missing keys inside the analytics/telegram sections too, so a partial
+	// ? Fill missing keys inside the analytics/telegram/weekly_rewards_progressor sections too, so a partial
 	// ? section (e.g. only "host") doesn't silently turn "enabled" off.
-	for _, section := range []string{"analytics", "telegram"} {
+	for _, section := range []string{"analytics", "telegram", "weekly_rewards_progressor"} {
 		raw, ok := cfgMap[section].(map[string]interface{})
 		if !ok {
 			cfgMap[section] = defaultConfig()[section]
@@ -544,6 +571,7 @@ func buildBaseStreamerSettings(cfg config) entities.StreamerSettings {
 		ClaimMoments:    cfg.ClaimMoments,
 		WatchStreak:     true,
 		CommunityGoals:  cfg.CommunityGoals,
+		WeeklyRewards:   cfg.WeeklyRewards,
 		Bet:             betSettings,
 		IRCMode:         parseChatPresence(cfg.IRCMode, entities.IRCModeOnline),
 	}
@@ -561,6 +589,32 @@ func buildOverrideSettings(base entities.StreamerSettings, overrides map[string]
 		overrideSettings[key] = mergeStreamerSettings(base, override)
 	}
 	return overrideSettings
+}
+
+func buildWeeklyRewardsProgressorSettings(raw weeklyRewardsProgressorConfig) miner.WeeklyRewardsProgressorSettings {
+	settings := miner.DefaultWeeklyRewardsProgressorSettings()
+	if raw.Enabled != nil {
+		settings.Enabled = *raw.Enabled
+	}
+	if raw.MaxConcurrentWatch != nil {
+		settings.MaxConcurrentWatch = *raw.MaxConcurrentWatch
+	}
+	if raw.MaxSecondsClips != nil {
+		settings.MaxSecondsClips = *raw.MaxSecondsClips
+	}
+	if raw.MaxSecondsVODs != nil {
+		settings.MaxSecondsVODs = *raw.MaxSecondsVODs
+	}
+	if raw.LoopIntervalSeconds != nil {
+		settings.LoopIntervalSeconds = *raw.LoopIntervalSeconds
+	}
+	if raw.MaxFailuresPerStreamer != nil {
+		settings.MaxFailuresPerStreamer = *raw.MaxFailuresPerStreamer
+	}
+	if raw.FailureCooldownSeconds != nil {
+		settings.FailureCooldownSeconds = *raw.FailureCooldownSeconds
+	}
+	return settings.Normalized()
 }
 
 func main() {
@@ -658,6 +712,8 @@ func main() {
 	)
 	startAnalytics(cfg.Analytics, logger)
 	miner.SetTelegram(cfg.Telegram.settings())
+
+	minr.SetWeeklyRewardsProgressorSettings(buildWeeklyRewardsProgressorSettings(cfg.WeeklyRewardsProgressor))
 
 	if len(cfg.Streamers) > 0 {
 		minr.Mine(cfg.Streamers)
