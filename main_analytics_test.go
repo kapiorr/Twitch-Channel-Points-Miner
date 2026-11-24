@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -44,6 +46,33 @@ func TestTelegramConfigChatIDAcceptsNumberOrString(t *testing.T) {
 		}
 		if got := cfg.settings().ChatID; got != want {
 			t.Fatalf("chat_id %s got %q, want %q", raw, got, want)
+		}
+	}
+}
+
+func TestLoadOrCreateConfigFillsAnalyticsAndTelegramKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	raw := `{"username":"viewer","analytics":{"host":"127.0.0.1"},"telegram":{"chat_id":123}}`
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := loadOrCreateConfig(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.Analytics.Enabled || cfg.Analytics.Host != "127.0.0.1" || cfg.Analytics.Port != 5000 {
+		t.Fatalf("partial analytics section should keep host and get defaults, got %+v", cfg.Analytics)
+	}
+	if string(cfg.Telegram.ChatID) != "123" || cfg.Telegram.Token != "" || cfg.Telegram.DisableNotification {
+		t.Fatalf("partial telegram section should keep chat_id and get defaults, got %+v", cfg.Telegram)
+	}
+	written, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	for _, key := range []string{`"enabled"`, `"port"`, `"token"`, `"disable_notification"`} {
+		if !strings.Contains(string(written), key) {
+			t.Fatalf("missing %s in the rewritten config", key)
 		}
 	}
 }
