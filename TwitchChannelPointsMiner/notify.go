@@ -83,6 +83,8 @@ func eventTitle(event constants.Event) string {
 		return "Drop progress"
 	case constants.EventChatMention:
 		return "Chat mention"
+	case constants.EventWeeklyReward:
+		return "Weekly reward"
 	default:
 		if event == "" {
 			return "Miner"
@@ -94,7 +96,7 @@ func eventTitle(event constants.Event) string {
 func eventColor(event constants.Event) int {
 	switch event {
 	case constants.EventStreamerOnline, constants.EventGainForWatch, constants.EventGainForWatchStreak,
-		constants.EventBetWin, constants.EventGainForClaim, constants.EventBonusClaim:
+		constants.EventBetWin, constants.EventGainForClaim, constants.EventBonusClaim, constants.EventWeeklyReward:
 		return 0x0A7A2F
 	case constants.EventStreamerOffline, constants.EventBetLose, constants.EventBetFailed:
 		return 0xC23030

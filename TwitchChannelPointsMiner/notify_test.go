@@ -71,3 +71,16 @@ func TestWantsEvent(t *testing.T) {
 		t.Fatal("blank event is never selected")
 	}
 }
+
+func TestWeeklyRewardNotification(t *testing.T) {
+	if got := eventTitle(constants.EventWeeklyReward); got != "Weekly reward" {
+		t.Fatalf("title got %q", got)
+	}
+	if got := eventColor(constants.EventWeeklyReward); got != 0x0A7A2F {
+		t.Fatalf("color got %#x, want the positive green", got)
+	}
+	msg := "Weekly Reward kanal_pierwszy: DAY_COMPLETED, 2/3 days visited this week"
+	if got := eventSentence(msg); got != msg+"." {
+		t.Fatalf("sentence got %q", got)
+	}
+}
