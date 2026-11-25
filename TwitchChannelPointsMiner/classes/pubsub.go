@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"TwitchChannelPointsMiner/TwitchChannelPointsMiner/classes/entities"
@@ -43,6 +44,9 @@ type PubSubClient struct {
 	onGain      func(streamer *entities.Streamer, earned int, reason string, balance int)
 	onPresence  func(streamer *entities.Streamer, online bool, reason string)
 	onWeekly    func(streamer *entities.Streamer, notification entities.WeeklyRewardsNotification)
+
+	// ? endpoint overrides the PubSub websocket URL (tests use a local server).
+	endpoint string
 }
 
 // SetWeeklyRewardsHandler registers the callback for weekly-rewards notifications.
@@ -161,12 +165,18 @@ func (p *PubSubClient) connectAndListen(connIndex int, topics []string, stop <-c
 	if p.disableSSL {
 		dialer.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
 	}
-	conn, _, err := dialer.Dial(constants.WebsocketURL, nil)
+	endpoint := p.endpoint
+	if endpoint == "" {
+		endpoint = constants.WebsocketURL
+	}
+	conn, _, err := dialer.Dial(endpoint, nil)
 	if err != nil {
 		return err
 	}
 
-	lastPong := time.Now()
+	// ? Written by the reader goroutine, read by the ping loop.
+	var lastPong atomic.Int64
+	lastPong.Store(time.Now().UnixNano())
 	pingTimer := time.NewTimer(p.randomPingInterval())
 	defer pingTimer.Stop()
 
@@ -194,8 +204,6 @@ func (p *PubSubClient) connectAndListen(connIndex int, topics []string, stop <-c
 	}
 
 	var readWG sync.WaitGroup
-	readWG.Add(1)
-
 	defer func() {
 		conn.Close()
 		readWG.Wait()
@@ -210,6 +218,9 @@ func (p *PubSubClient) connectAndListen(connIndex int, topics []string, stop <-c
 	p.logger.Printf("Connected to Twitch PubSub (conn #%d) with %d topic(s)", connIndex, len(topics))
 
 	readErr := make(chan error, 1)
+	// ? Count the reader only once it starts: a failed subscription above returns
+	// ? before it exists, and waiting for it in the deferred cleanup would hang forever.
+	readWG.Add(1)
 	go func() {
 		defer readWG.Done()
 		for {
@@ -235,7 +246,7 @@ func (p *PubSubClient) connectAndListen(connIndex int, topics []string, stop <-c
 			}
 			p.deepDebugf("PubSub[%d] recv: %s", connIndex, strings.TrimSpace(string(message)))
 			if msgType == "PONG" {
-				lastPong = time.Now()
+				lastPong.Store(time.Now().UnixNano())
 				continue
 			}
 			if msgType == "RECONNECT" {
@@ -283,7 +294,7 @@ func (p *PubSubClient) connectAndListen(connIndex int, topics []string, stop <-c
 			if err := conn.WriteJSON(map[string]string{"type": "PING"}); err != nil {
 				return err
 			}
-			if time.Since(lastPong) > 5*time.Minute {
+			if time.Since(time.Unix(0, lastPong.Load())) > 5*time.Minute {
 				return fmt.Errorf("last PONG >5m ago, reconnecting")
 			}
 			pingTimer.Reset(p.randomPingInterval())
