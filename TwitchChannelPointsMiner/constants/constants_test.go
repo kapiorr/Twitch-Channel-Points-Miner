@@ -9,6 +9,7 @@ func TestEventGlyphsCoverEveryEvent(t *testing.T) {
 		EventGainForRaid, EventGainForClaim, EventGainForWatch, EventGainForWatchStreak,
 		EventBetWin, EventBetLose, EventBetRefund, EventBetFilters, EventBetGeneral, EventBetFailed, EventBetStart,
 		EventBonusClaim, EventMomentClaim, EventJoinRaid, EventDropClaim, EventDropStatus, EventChatMention,
+		EventWeeklyReward,
 	}
 	if len(eventGlyphs) != len(all) {
 		t.Fatalf("glyph map has %d entries, event list has %d", len(eventGlyphs), len(all))
